@@ -47,6 +47,8 @@ server_sock    = None
 client_id      = None
 private_key    = None
 public_key     = None
+_prompt_shown        = False
+_no_one_msg_count    = 0
 shared_secrets = {}
 name_colors    = {}
 
@@ -139,16 +141,16 @@ def color_for(name):
 def colored_name(name):
     return f"{color_for(name)}{Style.BRIGHT}{name}{Style.RESET_ALL}"
 
-def info(text):  return f"{Fore.GREEN}{text}{Style.RESET_ALL}"
-def keyinfo(text):  return f"{Fore.MAGENTA}{text}{Style.RESET_ALL}"
-def warn(text):  return f"{Fore.YELLOW}{text}{Style.RESET_ALL}"
-def error(text): return f"{Fore.RED}{text}{Style.RESET_ALL}"
-def dim(text):   return f"{Style.DIM}{text}{Style.RESET_ALL}"
+def info(text):    return f"{Fore.GREEN}{text}{Style.RESET_ALL}"
+def keyinfo(text): return f"{Fore.MAGENTA}{text}{Style.RESET_ALL}"
+def warn(text):    return f"{Fore.YELLOW}{text}{Style.RESET_ALL}"
+def error(text):   return f"{Fore.RED}{text}{Style.RESET_ALL}"
+def dim(text):     return f"{Style.DIM}{text}{Style.RESET_ALL}"
 
 # ---------------------------------------------------------------------------------------------------
 # helper functions for the network
 
-#gets local ips and stores them, if none return loop ip
+# gets local ip and stores it, if none return loop ip
 def get_local_ip():
     try:
         temp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -159,7 +161,7 @@ def get_local_ip():
     except Exception:
         return "127.0.0.1"
 
-# parses the srver address for the terminal input 
+# parses the server address for the terminal input 
 def parse_server_address(s):
     try:
         ip, port = s.split(":")
@@ -237,10 +239,13 @@ def establish_secret_with(peer_id):
     return True
 
 # ---------------------------------------------------------------------------------------------------
-# force print, prints above your current [ ClientID > msg ] 
+# force print, prints above your current [ ClientID > msg ]
+# also marks the prompt as shown since it redraws it
 def print_above(text):
+    global _prompt_shown
     sys.stdout.write(f"\r{text}\n{Fore.CYAN}{Style.BRIGHT}{client_id}{Style.RESET_ALL} > ")
     sys.stdout.flush()
+    _prompt_shown = True
 
 # ---------------------------------------------------------------------------------------------------
 # message handler for the server, takes all incoming messages -> gets their type -> does shit
@@ -327,7 +332,7 @@ def receive_thread():
         handle_server_message(data)
 
 # ---------------------------------------------------------------------------------------------------
-# ping server to see if connection still is up, if no pong responce, kill connection
+# ping server to see if connection still is up, if no pong response, kill connection
 def heartbeat_thread():
     while server_sock:
         time.sleep(25)
@@ -337,15 +342,24 @@ def heartbeat_thread():
                     server_sock.sendall("PING\r\n\r\n".encode())
         except Exception:
             break
-        
+
+# ---------------------------------------------------------------------------------------------------
+# reprints the userID prompt only if it hasn't already been drawn
+def show_prompt(client_id):
+    global _prompt_shown
+    if not _prompt_shown:
+        sys.stdout.write(f"{Fore.CYAN}{Style.BRIGHT}{client_id}{Style.RESET_ALL} > ")
+        sys.stdout.flush()
+        _prompt_shown = True
+
 # ---------------------------------------------------------------------------------------------------
 # handles all messages typed into the terminal
-
 def handle_input(line):
+    global _no_one_msg_count, _prompt_shown
     line = line.rstrip("\n").rstrip("\r")
     sent = False
 
-    # preforms quit
+    # performs quit
     if line == "/quit":
         print("Goodbye!")
         shutdown(0)
@@ -358,7 +372,7 @@ def handle_input(line):
     elif line == "/id":
         print_above(f"Your ID: {client_id}")
 
-    # parses and handles DM's to users
+    # parses and handles DMs to users
     elif line.startswith("/dm "):
         parts = line.split(" ", 2)
         if len(parts) < 3:
@@ -380,7 +394,7 @@ def handle_input(line):
     elif line.startswith("/"):
         print_above("Unknown command. Available: /members, /dm <name> <msg>, /id, /quit")
 
-    # checks to see if a connection exists for the users, if it doesnt, establiosh it
+    # checks to see if a connection exists for the users, if it doesn't, establish it
     elif line.strip():
         for member in existing_members:
             if member == client_id:
@@ -395,10 +409,13 @@ def handle_input(line):
                 sent = True
 
         if not sent:
-            print_above(warn("[No one else is online yet]"))
-        
-        sys.stdout.write(f"{Fore.CYAN}{Style.BRIGHT}{client_id}{Style.RESET_ALL} > ")
-        sys.stdout.flush()
+            _no_one_msg_count += 1
+            if _no_one_msg_count == 1 or (_no_one_msg_count - 1) % 3 == 0:
+                print_above(warn("[No one else is online yet]"))
+            else:
+                _prompt_shown = False  # force show_prompt to redraw since print_above was skipped
+        time.sleep(0.05)
+        show_prompt(client_id)
 
 # ---------------------------------------------------------------------------------------------------
 # MAIN
@@ -416,8 +433,8 @@ def main():
     # TLS PROTOCOL
     tls_ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
     tls_ctx.minimum_version = ssl.TLSVersion.TLSv1_2
-    tls_ctx.check_hostname  = False   #  set True + cafile for production
-    tls_ctx.verify_mode     = ssl.CERT_NONE  #  set CERT_REQUIRED for production
+    tls_ctx.check_hostname  = False   # set True + cafile for production
+    tls_ctx.verify_mode     = ssl.CERT_NONE  # set CERT_REQUIRED for production
 
     # asks user for ID again if ID was already in use or taken
     while True:
@@ -492,7 +509,7 @@ def main():
             msg_type, headers = parse_message(data)
 
             if msg_type == "REGACK":
-                # success  break all the way out
+                # success — break all the way out
                 members = headers.get("members", client_id)
                 print(info("Registered successfully!"))
                 colored_members = ", ".join(
@@ -559,6 +576,7 @@ def main():
             line = sys.stdin.readline()
             if not line:
                 shutdown(0)
+            _prompt_shown = False  # user hit enter, prompt was consumed
             handle_input(line)
         except KeyboardInterrupt:
             shutdown(0)
