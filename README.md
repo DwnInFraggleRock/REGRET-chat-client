@@ -25,7 +25,7 @@ Python-based encrypted chat client. Uses a self hosted server with a terminal cl
 
 ---
 
-## Server Setup
+# Server Setup
 
 ### 1. Choose a machine
 
@@ -44,7 +44,7 @@ You will be prompted to fill in certificate details. These can be left at their 
 - `cert.pem` -> the certificate 
 - `key.pem` -> the private key (do not share this file)
 
-# Note : 
+## Note : 
 If this is not for personal use, use a proper TLS certificate, and modify `client.py` for a proper TLS.
 
 
@@ -58,7 +58,7 @@ The server will start listening on the specified port (in this example that is p
 
 ---
 
-## Client Setup
+# Client Setup
 
 ### 1. Get the certificate
 
